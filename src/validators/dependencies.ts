@@ -81,13 +81,13 @@ export function resolveModule(
  * Validate all modules are installed
  */
 export function validateDependencies(
-  modules: Record<string, string>,
+  modules: string[],
   projectRoot: string
 ): ValidationResult {
   const installed: ModuleInfo[] = [];
   const missing: string[] = [];
 
-  for (const [_key, modulePath] of Object.entries(modules)) {
+  for (const modulePath of modules) {
     const info = resolveModule(modulePath, projectRoot);
 
     if (info) {

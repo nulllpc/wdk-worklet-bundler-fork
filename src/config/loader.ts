@@ -4,17 +4,14 @@
 
 import fs from 'fs';
 import path from 'path';
-import type { WdkConfig, ResolvedConfig } from './types';
+import type { WdkBundleConfig, ResolvedConfig } from './types';
 import { validateConfig } from './schema';
+import { DEFAULT_BUNDLE_PATH, DEFAULT_TYPES_PATH } from '../constants'
 
 const CONFIG_FILES = [
   'wdk.config.js',
   'wdk.config.cjs',
-  'wdk.config.mjs',
-  'wdk.config.json',
-  '.wdkrc',
-  '.wdkrc.json',
-  '.wdkrc.js',
+  'wdk.config.mjs'
 ];
 
 /**
@@ -30,10 +27,7 @@ function findConfigFile(dir: string): string | null {
   return null;
 }
 
-/**
- * Load configuration from file
- */
-async function loadConfigFile(filepath: string): Promise<WdkConfig> {
+async function loadConfigFile(filepath: string): Promise<WdkBundleConfig> {
   const ext = path.extname(filepath);
 
   if (ext === '.json' || filepath.endsWith('.wdkrc')) {
@@ -58,9 +52,6 @@ async function loadConfigFile(filepath: string): Promise<WdkConfig> {
   return config.default || config;
 }
 
-/**
- * Load and validate configuration
- */
 export async function loadConfig(configPath?: string): Promise<ResolvedConfig> {
   const cwd = process.cwd();
 
@@ -95,11 +86,11 @@ export async function loadConfig(configPath?: string): Promise<ResolvedConfig> {
   const resolvedOutput = {
     bundle: path.resolve(
       projectRoot,
-      config.output?.bundle || './.wdk/wdk.bundle.js'
+      config.output?.bundle || DEFAULT_BUNDLE_PATH
     ),
     types: path.resolve(
       projectRoot,
-      config.output?.types || './.wdk/wdk.d.ts'
+      config.output?.types || DEFAULT_TYPES_PATH
     ),
   };
 
@@ -111,7 +102,4 @@ export async function loadConfig(configPath?: string): Promise<ResolvedConfig> {
   };
 }
 
-/**
- * Create config index file
- */
 export { validateConfig } from './schema';

@@ -7,6 +7,7 @@
 import { Command } from 'commander'
 import fs from 'fs'
 import path from 'path'
+import { DEFAULT_BUNDLE_BUILD_HOSTS, DEFAULT_BUNDLE_PATH, DEFAULT_TYPES_PATH } from './constants'
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pkg = require('../package.json')
@@ -14,6 +15,29 @@ const pkg = require('../package.json')
 const program = new Command()
 
 program.name('wdk-worklet-bundler').description('CLI tool for generating WDK worklet bundles').version(pkg.version)
+
+// Helper to extract unique package names from config
+function getPackageList(config: any): string[] {
+  const packages = new Set<string>()
+  
+  // Add core (always required implicitly, unless overriden/preloaded logic changes)
+  // For validation, we should probably check it.
+  packages.add('@tetherto/wdk')
+
+  if (config.networks) {
+    for (const net of Object.values(config.networks) as any[]) {
+      if (net.package) packages.add(net.package)
+    }
+  }
+
+  if (config.preloadModules) {
+    for (const mod of config.preloadModules) {
+      packages.add(mod)
+    }
+  }
+
+  return Array.from(packages)
+}
 
 program
   .command('generate')
@@ -39,7 +63,8 @@ program
       console.log(`  Config: ${config.configPath}`)
 
       console.log('\n📦 Checking dependencies...\n')
-      let validation = validateDependencies(config.modules, config.projectRoot)
+      const requiredPackages = getPackageList(config)
+      let validation = validateDependencies(requiredPackages, config.projectRoot)
 
       for (const mod of validation.installed) {
         const version = mod.isLocal ? 'local' : `v${mod.version}`
@@ -82,7 +107,7 @@ program
         }
 
         // Re-validate after installation
-        validation = validateDependencies(config.modules, config.projectRoot)
+        validation = validateDependencies(requiredPackages, config.projectRoot)
 
         if (!validation.valid && !options.sourceOnly) {
           console.log('\n❌ Some dependencies are still missing after installation\n')
@@ -101,7 +126,7 @@ program
 
       console.log('\n🌐 Networks configured:\n')
       for (const [name, cfg] of Object.entries(config.networks)) {
-        console.log(`  ├── ${name} (${cfg.module}) → chainId: ${cfg.chainId}`)
+        console.log(`  ├── ${name} (${cfg.package})`)
       }
 
       if (options.sourceOnly) {
@@ -113,8 +138,6 @@ program
 
         console.log('\n✅ Source files generated successfully!\n')
         console.log(`  Entry: ${result.entryPath}`)
-        console.log(`  HRPC: ${result.hrpcDir}`)
-        console.log(`  Schema: ${result.schemaDir}\n`)
         console.log('Run bare-pack manually to create the final bundle.\n')
         return
       }
@@ -189,7 +212,6 @@ program
     }
 
     if (options.fromPearWrkWdk) {
-      // Migrate from pear-wrk-wdk
       const sourcePath = path.resolve(options.fromPearWrkWdk)
       const schemaPath = path.join(sourcePath, 'schema.json')
 
@@ -203,53 +225,35 @@ program
         const walletModules = schema.config?.walletModules || {}
         const preloadModules = schema.config?.preloadModules || []
 
-        // Build modules config
-        const modules: Record<string, string> = {
-          core: '@tetherto/wdk',
-        }
-        const networks: Record<string, unknown> = {}
+        const networks: Record<string, any> = {}
 
         for (const [key, cfg] of Object.entries(walletModules) as [
           string,
           { modulePath: string; networks: string[] }
         ][]) {
-          modules[key] = cfg.modulePath
-
           for (const network of cfg.networks) {
             networks[network] = {
-              module: key,
-              chainId: 0, // User needs to fill in
-              blockchain: network,
+              package: cfg.modulePath
             }
           }
         }
 
-        const configContent = generateConfigTemplate(modules, networks, preloadModules)
+        const configContent = generateConfigTemplate(networks, preloadModules)
         fs.writeFileSync(configPath, configContent)
 
         console.log('\n✅ Created wdk.config.js from pear-wrk-wdk schema\n')
-        console.log('  Please review and update network configurations (chainId, provider, etc.)\n')
       } catch (error) {
         console.error('\n❌ Failed to migrate:', error instanceof Error ? error.message : error)
         process.exit(1)
       }
     } else {
-      // Create default config
-      const defaultModules = {
-        core: '@tetherto/wdk',
-        erc4337: '@tetherto/wdk-wallet-evm-erc-4337',
-      }
-
       const defaultNetworks = {
         ethereum: {
-          module: 'erc4337',
-          chainId: 1,
-          blockchain: 'ethereum',
-          provider: 'https://eth.drpc.org',
+          package: '@tetherto/wdk-wallet-evm-erc-4337'
         },
       }
 
-      const configContent = generateConfigTemplate(defaultModules, defaultNetworks, [])
+      const configContent = generateConfigTemplate(defaultNetworks, [])
       fs.writeFileSync(configPath, configContent)
 
       console.log('\n✅ Created wdk.config.js\n')
@@ -271,7 +275,8 @@ program
       const config = await loadConfig(options.config)
       console.log(`  ✓ Config file valid: ${config.configPath}`)
 
-      const validation = validateDependencies(config.modules, config.projectRoot)
+      const requiredPackages = getPackageList(config)
+      const validation = validateDependencies(requiredPackages, config.projectRoot)
 
       console.log('\n📦 Dependencies:\n')
       for (const mod of validation.installed) {
@@ -305,7 +310,7 @@ program
       { name: '@tetherto/wdk-wallet-btc', description: 'Bitcoin' },
       { name: '@tetherto/wdk-wallet-spark', description: 'Spark (Lightning)' },
       { name: '@tetherto/wdk-wallet-ton', description: 'TON' },
-      { name: '@tetherto/wdk-wallet-sol', description: 'Solana' },
+      { name: '@tetherto/wdk-wallet-solana', description: 'Solana' },
     ]
 
     if (options.json) {
@@ -364,20 +369,14 @@ program
  * Generate config template
  */
 function generateConfigTemplate(
-  modules: Record<string, string>,
-  networks: Record<string, unknown>,
+  networks: Record<string, any>,
   preloadModules: string[]
 ): string {
-  const modulesStr = Object.entries(modules)
-    .map(([key, value]) => `    ${key}: '${value}'`)
-    .join(',\n')
-
   const networksStr = Object.entries(networks)
     .map(([key, value]) => {
-      const configLines = Object.entries(value as Record<string, unknown>)
-        .map(([k, v]) => `      ${k}: ${typeof v === 'string' ? `'${v}'` : v}`)
-        .join(',\n')
-      return `    ${key}: {\n${configLines}\n    }`
+      // Clean value to be just package
+      const pkg = value.package || value
+      return `    ${key}: { package: '${pkg}' }`
     })
     .join(',\n')
 
@@ -392,33 +391,23 @@ function generateConfigTemplate(
  */
 
 module.exports = {
-  // WDK modules to include in the bundle
-  modules: {
-${modulesStr}
-  },
-
-  // Network configurations
-  // Each network maps to a module and includes chain-specific settings
+  // Network mappings
+  // Map logical network names to WDK wallet packages
   networks: {
 ${networksStr}
   },
 
 ${preloadStr}  // Output paths (optional, defaults shown)
   output: {
-    bundle: './.wdk/wdk.bundle.js',
-    types: './.wdk/wdk.d.ts'
+    bundle: '${DEFAULT_BUNDLE_PATH}',
+    types: '${DEFAULT_TYPES_PATH}'
   },
 
   // Build options (optional)
   options: {
     // minify: false,
     // sourceMaps: false,
-    targets: [
-      'ios-arm64',
-      'ios-arm64-simulator',
-      'android-arm64',
-      'android-arm'
-    ]
+    targets: ${DEFAULT_BUNDLE_BUILD_HOSTS}
   }
 };
 `

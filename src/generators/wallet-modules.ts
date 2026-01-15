@@ -14,80 +14,56 @@ function capitalize(str: string): string {
 /**
  * Convert module key to variable name
  */
-function toVarName(key: string): string {
-  return `WalletManager${key
-    .split(/[-_]/)
-    .map(capitalize)
-    .join('')}`;
-}
-
-/**
- * Get networks that use a specific module
- */
-function getNetworksForModule(
-  moduleKey: string,
-  config: ResolvedConfig
-): string[] {
-  return Object.entries(config.networks)
-    .filter(([_, cfg]) => cfg.module === moduleKey)
-    .map(([name]) => name);
-}
+ function toVarName(pkg: string): string {
+   // Remove scope (@scope/), split by non-alphanumeric, camelCase
+   const clean = pkg.replace(/^@[^/]+\//, '').replace(/[^a-zA-Z0-9]/g, '_');
+   return clean.split('_').map(capitalize).join('');
+ }
 
 /**
  * Generate wallet modules code section
  */
-export function generateWalletModulesCode(config: ResolvedConfig): string {
-  const lines: string[] = [];
-
-  // Preload modules first (native addons like spark-frost-bare-addon)
-  if (config.preloadModules?.length) {
-    lines.push('// Preload modules (native addons)');
-    for (const mod of config.preloadModules) {
-      lines.push(`require('${mod}');`);
-    }
-    lines.push('');
-  }
-
-  // Determine core module path
-  const coreModule = config.modules.core || '@tetherto/wdk';
-
-  // Load WDK core
-  lines.push('// Load WDK core');
-  lines.push(`const wdkModule = require('${coreModule}');`);
-  lines.push('const WDK = wdkModule.default || wdkModule.WDK || wdkModule;');
-  lines.push('');
-
-  // Track module variables for network mapping
-  const moduleVars: { varName: string; networks: string[] }[] = [];
-
-  // Load wallet modules
-  lines.push('// Load wallet modules');
-  for (const [key, modulePath] of Object.entries(config.modules)) {
-    if (key === 'core') continue;
-
-    const varName = toVarName(key);
-    const networks = getNetworksForModule(key, config);
-
-    lines.push(`const ${key}Module = require('${modulePath}');`);
-    lines.push(`const ${varName} = ${key}Module.default || ${key}Module;`);
-
-    moduleVars.push({ varName, networks });
-  }
-  lines.push('');
-
-  // Map networks to wallet managers
-  lines.push('// Map networks to wallet managers');
-  lines.push('const walletManagers = {};');
-  for (const { varName, networks } of moduleVars) {
-    for (const network of networks) {
-      lines.push(`walletManagers['${network}'] = ${varName};`);
-    }
-  }
-  lines.push('');
-
-  // Required networks array
-  const requiredNetworks = Object.keys(config.networks);
-  lines.push(`const requiredNetworks = ${JSON.stringify(requiredNetworks)};`);
-
-  return lines.join('\n');
-}
+ export function generateWalletModulesCode(config: ResolvedConfig): string {
+   const lines: string[] = [];
+ 
+   if (config.preloadModules?.length) {
+     lines.push('// Preload modules');
+     for (const mod of config.preloadModules) {
+       lines.push(`require('${mod}');`);
+     }
+     lines.push('');
+   }
+ 
+   lines.push('// Load WDK core');
+   lines.push(`const wdkModule = require('@tetherto/wdk');`);
+   lines.push('const WDK = wdkModule.default || wdkModule.WDK || wdkModule;');
+   lines.push('');
+ 
+   lines.push('// Load wallet modules');
+   
+   const packages = new Map<string, string>();
+ 
+   for (const networkConfig of Object.values(config.networks)) {
+     const pkg = networkConfig.package;
+     if (!packages.has(pkg)) {
+       packages.set(pkg, toVarName(pkg));
+     }
+   }
+ 
+   for (const [pkgPath, varName] of packages) {
+     lines.push(`const ${varName}Raw = require('${pkgPath}', { with: { imports: 'bare-node-runtime/imports' }});`);
+     lines.push(`const ${varName} = ${varName}Raw.default || ${varName}Raw;`);
+   }
+   lines.push('');
+ 
+   lines.push('// Map networks to wallet managers');
+   lines.push('const walletManagers = {};');
+   
+   for (const [networkName, networkConfig] of Object.entries(config.networks)) {
+     const pkg = networkConfig.package;
+     const varName = packages.get(pkg);
+     lines.push(`walletManagers['${networkName}'] = ${varName};`);
+   }
+ 
+   return lines.join('\n');
+ }

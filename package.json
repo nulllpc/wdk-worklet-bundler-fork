@@ -41,9 +41,7 @@
   },
   "dependencies": {
     "commander": "^12.1.0",
-    "ajv": "^8.17.1",
-    "hyperschema": "^1.12.4",
-    "hrpc": "^4.0.1"
+    "ajv": "^8.17.1"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
