@@ -106,11 +106,9 @@ function generateIndexFile(outputDir: string): void {
  */
 
 const bundle = require('./${DEFAULT_BUNDLE_FILENAME}');
-const { HRPC } = require('@tetherto/pear-wrk-wdk');
 
 module.exports = {
-  bundle,
-  HRPC
+  bundle
 };
 `
 
@@ -279,7 +277,6 @@ async function generateTypeDeclarations(config: ResolvedConfig): Promise<void> {
  * Generated at: ${new Date().toISOString()}
  */
 
-export * from "@tetherto/pear-wrk-wdk";
 export type NetworkName = ${networks.map((n) => `'${n}'`).join(' | ')};
 export type ProtocolName = ${protocols.length ? protocols.map((n) => `'${n}'`).join(' | ') : 'never'};
 

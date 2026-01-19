@@ -15,7 +15,7 @@ export async function generateEntryPoint(config: ResolvedConfig, outputDir: stri
 // DO NOT EDIT MANUALLY
 
 const { IPC: BareIPC } = BareKit
-const { HRPC, registerRpcHandlers, utils } = require('@tetherto/pear-wrk-wdk');
+const { HRPC, registerRpcHandlers, utils } = require('@tetherto/pear-wrk-wdk/worklet');
 const { logger } = utils;
 
 // Handle unhandled promise rejections and exceptions

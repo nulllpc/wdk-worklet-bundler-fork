@@ -25,6 +25,7 @@ function getPackageList(config: any): string[] {
   // For validation, we should probably check it.
   packages.add('@tetherto/wdk')
   packages.add('@tetherto/pear-wrk-wdk')
+  packages.add('bare-node-runtime')
 
   if (config.networks) {
     for (const net of Object.values(config.networks) as any[]) {
