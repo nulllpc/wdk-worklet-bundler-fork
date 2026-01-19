@@ -43,7 +43,7 @@ function runBarePack(options: BarePackOptions): void {
   const { entryPath, outputPath, importsPath, targets, cwd, verbose } = options
 
   // Build args array to prevent command injection
-  const args = ['bare-pack']
+  const args = ['--no-install', 'bare-pack']
   for (const target of targets) {
     // Validate target format (alphanumeric with dashes only)
     if (!/^[a-z0-9-]+$/i.test(target)) {
