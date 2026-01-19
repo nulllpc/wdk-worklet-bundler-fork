@@ -7,7 +7,7 @@
 import { Command } from 'commander'
 import fs from 'fs'
 import path from 'path'
-import { DEFAULT_BUNDLE_BUILD_HOSTS, DEFAULT_BUNDLE_PATH, DEFAULT_TYPES_PATH } from './constants'
+import { DEFAULT_BUNDLE_BUILD_HOSTS, DEFAULT_BUNDLE_PATH, DEFAULT_TYPES_PATH, DEFAULT_OUTPUT_DIR } from './constants'
 import { printBanner } from './utils/banner'
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -52,7 +52,7 @@ program
   .description('Generate WDK bundle from configuration')
   .option('-c, --config <path>', 'Path to config file')
   .option('--install', 'Auto-install missing dependencies')
-  .option('--cleanup', 'Remove installed dependencies after bundle is created (use with --install)')
+  .option('--keep-artifacts', 'Keep intermediate generated files (useful for debugging)')
   .option('--dry-run', 'Show what would be generated without building')
   .option('-v, --verbose', 'Show verbose output')
   .option('--no-types', 'Skip TypeScript declaration generation')
@@ -62,7 +62,6 @@ program
     const { 
       validateDependencies, 
       installDependencies, 
-      uninstallDependencies, 
       checkOptionalPeerDependencies 
     } = await import('./validators/dependencies')
     const { generateBundle, generateSourceFiles } = await import('./bundler')
@@ -239,30 +238,22 @@ program
       }
       console.log(`  Duration: ${duration}s\n`)
 
-      // Cleanup installed dependencies if --cleanup flag is set
-      if (options.cleanup && installedPackages.length > 0) {
-        console.log('🧹 Cleaning up installed dependencies...\n')
-
-        const uninstallResult = uninstallDependencies(installedPackages, config.projectRoot, {
-          verbose: options.verbose,
-        })
-
-        if (uninstallResult.command) {
-          console.log(`  Running: ${uninstallResult.command}\n`)
-        }
-
-        if (uninstallResult.removed.length > 0) {
-          for (const pkg of uninstallResult.removed) {
-            console.log(`  ✓ Removed ${pkg}`)
+      // Cleanup intermediate files unless --keep-artifacts is set
+      if (!options.keepArtifacts) {
+        if (options.verbose) console.log('🧹 Cleaning up intermediate files...\n')
+        
+        const generatedDir = path.join(config.projectRoot, DEFAULT_OUTPUT_DIR)
+        
+        if (fs.existsSync(generatedDir)) {
+          try {
+             fs.rmSync(generatedDir, { recursive: true, force: true })
+             if (options.verbose) console.log(`  ✓ Removed ${generatedDir}\n`)
+          } catch (e) {
+             console.log(`  ⚠️  Failed to cleanup ${generatedDir}: ${e}\n`)
           }
-          console.log('')
         }
-
-        if (!uninstallResult.success) {
-          console.log(`\n⚠️  Cleanup warning: ${uninstallResult.error}\n`)
-        }
-      } else if (options.cleanup && installedPackages.length === 0) {
-        console.log('ℹ️  No dependencies to clean up (nothing was installed by --install)\n')
+      } else {
+        console.log(`ℹ️  Keeping intermediate files in ${DEFAULT_OUTPUT_DIR}\n`)
       }
     } catch (error) {
       console.error('\n❌ Error:', error instanceof Error ? error.message : error)
@@ -273,7 +264,6 @@ program
 program
   .command('init')
   .description('Create a new wdk.config.js file')
-  .option('--from-pear-wrk-wdk <path>', 'Migrate from existing pear-wrk-wdk setup')
   .option('-y, --yes', 'Use defaults without prompting')
   .action(async (options) => {
     const configPath = path.join(process.cwd(), 'wdk.config.js')
@@ -284,54 +274,17 @@ program
       process.exit(1)
     }
 
-    if (options.fromPearWrkWdk) {
-      const sourcePath = path.resolve(options.fromPearWrkWdk)
-      const schemaPath = path.join(sourcePath, 'schema.json')
-
-      if (!fs.existsSync(schemaPath)) {
-        console.error(`\n❌ schema.json not found at ${schemaPath}\n`)
-        process.exit(1)
-      }
-
-      try {
-        const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'))
-        const walletModules = schema.config?.walletModules || {}
-        const preloadModules = schema.config?.preloadModules || []
-
-        const networks: Record<string, any> = {}
-
-        for (const [key, cfg] of Object.entries(walletModules) as [
-          string,
-          { modulePath: string; networks: string[] }
-        ][]) {
-          for (const network of cfg.networks) {
-            networks[network] = {
-              package: cfg.modulePath
-            }
-          }
-        }
-
-        const configContent = generateConfigTemplate(networks, preloadModules)
-        fs.writeFileSync(configPath, configContent)
-
-        console.log('\n✅ Created wdk.config.js from pear-wrk-wdk schema\n')
-      } catch (error) {
-        console.error('\n❌ Failed to migrate:', error instanceof Error ? error.message : error)
-        process.exit(1)
-      }
-    } else {
-      const defaultNetworks = {
-        ethereum: {
-          package: '@tetherto/wdk-wallet-evm-erc-4337'
-        },
-      }
-
-      const configContent = generateConfigTemplate(defaultNetworks, [])
-      fs.writeFileSync(configPath, configContent)
-
-      console.log('\n✅ Created wdk.config.js\n')
-      console.log('  Edit the file to configure your networks and modules.\n')
+    const defaultNetworks = {
+      ethereum: {
+        package: '@tetherto/wdk-wallet-evm-erc-4337'
+      },
     }
+
+    const configContent = generateConfigTemplate(defaultNetworks, [])
+    fs.writeFileSync(configPath, configContent)
+
+    console.log('\n✅ Created wdk.config.js\n')
+    console.log('  Edit the file to configure your networks and modules.\n')
   })
 
 program
@@ -404,7 +357,7 @@ program
   .description('Remove generated .wdk folder')
   .option('-y, --yes', 'Skip confirmation')
   .action(async (options) => {
-    const wdkDir = path.join(process.cwd(), '.wdk')
+    const wdkDir = path.join(process.cwd(), DEFAULT_OUTPUT_DIR)
 
     if (!fs.existsSync(wdkDir)) {
       console.log('\n✓ Nothing to clean - .wdk folder does not exist\n')
