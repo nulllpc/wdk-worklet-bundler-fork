@@ -245,11 +245,11 @@ export function generateInstallCommand(
 
   switch (packageManager) {
     case 'yarn':
-      return `yarn add -D ${packages.join(' ')}`;
+      return `yarn add ${packages.join(' ')}`;
     case 'pnpm':
-      return `pnpm add -D ${packages.join(' ')}`;
+      return `pnpm add ${packages.join(' ')}`;
     default:
-      return `npm install --save-dev ${packages.join(' ')}`;
+      return `npm install ${packages.join(' ')}`;
   }
 }
 
