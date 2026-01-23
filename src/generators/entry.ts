@@ -24,8 +24,10 @@ if (typeof Bare !== 'undefined' && Bare.on) {
   })
 }
 
+require('bare-node-runtime/global');
+
 const { IPC: BareIPC } = BareKit
-const { HRPC, registerRpcHandlers, utils } = require('@tetherto/pear-wrk-wdk/worklet');
+const { HRPC, registerRpcHandlers, utils } = require('@tetherto/pear-wrk-wdk/worklet', { with: { imports: 'bare-node-runtime/imports' }});
 const { logger } = utils;
 
 // ============================================================

@@ -35,7 +35,7 @@ function capitalize(str: string): string {
    }
  
    lines.push('// Load WDK core');
-   lines.push(`const wdkModule = require('@tetherto/wdk');`);
+   lines.push(`const wdkModule = require('@tetherto/wdk', { with: { imports: 'bare-node-runtime/imports' }});`);
    lines.push('const WDK = wdkModule.default || wdkModule.WDK || wdkModule;');
    lines.push('');
  
