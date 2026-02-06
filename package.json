@@ -36,9 +36,9 @@
     "lint": "eslint src",
     "test": "jest",
     "test:coverage": "jest --coverage",
-    "prepare": "npm run build",
-    "prepublishOnly": "npm run build && npm run test",
-    "prepack": "npm run build"
+    "prepare": "tsup src/index.ts src/cli.ts --format cjs --dts --clean",
+    "prepublishOnly": "tsup src/index.ts src/cli.ts --format cjs --dts --clean && jest",
+    "prepack": "tsup src/index.ts src/cli.ts --format cjs --dts --clean"
   },
   "dependencies": {
     "ajv": "^8.17.1",
