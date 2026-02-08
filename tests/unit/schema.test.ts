@@ -10,9 +10,9 @@ describe('Config Schema Validation', () => {
           }
         },
         protocols: {
-            aave: {
-                package: '@tetherto/wdk-protocol-aave-v3'
-            }
+          aave: {
+            package: '@tetherto/wdk-protocol-aave-v3'
+          }
         },
         preloadModules: ['native-addon'],
         output: {
@@ -57,16 +57,16 @@ describe('Config Schema Validation', () => {
     })
 
     it('should validate protocols if present', () => {
-        const config = {
-            networks: {
-                eth: { package: 'pkg' }
-            },
-            protocols: {
-                myproto: {
-                }
-            }
+      const config = {
+        networks: {
+          eth: { package: 'pkg' }
+        },
+        protocols: {
+          myproto: {
+          }
         }
-        expect(() => validateConfig(config)).toThrow('must have required property \'package\'')
+      }
+      expect(() => validateConfig(config)).toThrow('must have required property \'package\'')
     })
   })
 })

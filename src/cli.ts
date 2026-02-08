@@ -18,22 +18,24 @@ const program = new Command()
 program.name('wdk-worklet-bundler').description('CLI tool for generating WDK worklet bundles').version(pkg.version)
 
 // Helper to extract unique package names from config
-function getPackageList(config: any): string[] {
+function getPackageList (config: any): string[] {
   const packages = new Set<string>()
-  
+
   // Add core (always required implicitly, unless overriden/preloaded logic changes)
   // For validation, we should probably check it.
   packages.add('@tetherto/wdk')
   packages.add('bare-node-runtime')
 
   if (config.networks) {
-    for (const net of Object.values(config.networks) as any[]) {
+    for (const net of Object.values(config.networks)) {
+      // @ts-expect-error
       if (net.package) packages.add(net.package)
     }
   }
 
   if (config.protocols) {
-    for (const protocol of Object.values(config.protocols) as any[]) {
+    for (const protocol of Object.values(config.protocols)) {
+      // @ts-expect-error
       if (protocol.package) packages.add(protocol.package)
     }
   }
@@ -60,25 +62,25 @@ program
   .option('--skip-generation', 'Skip artifact generation and use existing files')
   .action(async (options) => {
     const { loadConfig } = await import('./config/loader')
-    const { 
-      validateDependencies, 
-      installDependencies, 
-      checkOptionalPeerDependencies 
+    const {
+      validateDependencies,
+      installDependencies,
+      checkOptionalPeerDependencies
     } = await import('./validators/dependencies')
     const { generateBundle, generateSourceFiles } = await import('./bundler')
 
     // Track packages installed by --install for potential cleanup
-    let installedPackages: string[] = []
+    const installedPackages: string[] = []
 
     // Helper for prompts
     const promptYesNo = async (question: string): Promise<boolean> => {
       const readline = await import('readline')
       const rl = readline.createInterface({
         input: process.stdin,
-        output: process.stdout,
+        output: process.stdout
       })
 
-      return new Promise((resolve) => {
+      return await new Promise((resolve) => {
         rl.question(`${question} [Y/n] `, (answer) => {
           rl.close()
           resolve(answer.toLowerCase() !== 'n')
@@ -105,7 +107,7 @@ program
 
       if (!validation.valid) {
         let shouldInstall = options.install
-        
+
         if (!shouldInstall && !options.sourceOnly) {
           console.log('\n⚠️  Missing core dependencies.')
           shouldInstall = await promptYesNo('Would you like to install them now?')
@@ -114,7 +116,7 @@ program
         if (shouldInstall) {
           console.log('\n📥 Installing missing dependencies...\n')
           const result = installDependencies(validation.missing, config.projectRoot, {
-            verbose: options.verbose,
+            verbose: options.verbose
           })
 
           if (result.success) {
@@ -134,7 +136,7 @@ program
         const missingPeers = checkOptionalPeerDependencies(validation.installed, config.projectRoot, {
           verbose: options.verbose
         })
-        
+
         if (missingPeers.length > 0) {
           console.log('\n🧩 Checking peer dependencies...\n')
           console.log('  The following optional peer dependencies were found in your dependency tree.')
@@ -146,45 +148,45 @@ program
             // Determine install version
             const ranges = [...new Set(peer.sources.map(s => s.range))]
             const isSingle = ranges.length === 1
-            
+
             if (isSingle) {
               // Single consistent requirement
               console.log(`  ? ${peer.name}@${ranges[0]}`)
               packagesToInstall.push(`${peer.name}@${ranges[0]}`)
-              
+
               for (const source of peer.sources) {
                 console.log(`    └─ required by ${source.parent}`)
               }
             } else {
               // Conflicting or mixed requirements
               console.log(`  ? ${peer.name} (mixed requirements)`)
-              console.log(`    ⚠️  Falling back to latest`)
+              console.log('    ⚠️  Falling back to latest')
               packagesToInstall.push(peer.name)
-              
+
               for (const source of peer.sources) {
                 console.log(`    └─ required by ${source.parent} @ ${source.range}`)
               }
             }
           }
-          
+
           let shouldInstallPeers = options.install
 
           if (!shouldInstallPeers) {
-             console.log('\n⚠️  Missing optional peer dependencies.')
-             shouldInstallPeers = await promptYesNo('Would you like to install them now?')
+            console.log('\n⚠️  Missing optional peer dependencies.')
+            shouldInstallPeers = await promptYesNo('Would you like to install them now?')
           }
 
           if (shouldInstallPeers) {
-             console.log('\n📥 Installing peer dependencies...\n')
-             const result = installDependencies(packagesToInstall, config.projectRoot, {
-               verbose: options.verbose
-             })
-             
-             if (result.success) {
-               installedPackages.push(...result.installed)
-             } else {
-                console.log(`\n⚠️  Warning: Failed to install some peer dependencies: ${result.error}`)
-             }
+            console.log('\n📥 Installing peer dependencies...\n')
+            const result = installDependencies(packagesToInstall, config.projectRoot, {
+              verbose: options.verbose
+            })
+
+            if (result.success) {
+              installedPackages.push(...result.installed)
+            } else {
+              console.log(`\n⚠️  Warning: Failed to install some peer dependencies: ${result.error}`)
+            }
           }
         }
       }
@@ -198,7 +200,7 @@ program
         console.log('\n🔧 Generating source files (source-only mode)...\n')
 
         const result = await generateSourceFiles(config, {
-          verbose: options.verbose,
+          verbose: options.verbose
         })
 
         console.log('\n✅ Source files generated successfully!\n')
@@ -213,19 +215,19 @@ program
         dryRun: options.dryRun,
         verbose: options.verbose,
         skipTypes: !options.types,
-        skipGeneration: options.skipGeneration,
+        skipGeneration: options.skipGeneration
       })
 
       if (!result.success) {
         if (result.missingModule) {
-           console.log(`\n❌ Build failed: Missing dependency '${result.missingModule}'\n`)
-           console.log(`💡 This appears to be a required dependency that was not detected automatically.`)
-           console.log(`   Please install it manually and try again:\n`)
-           console.log(`   npm install ${result.missingModule}\n`)
-           process.exit(1)
+          console.log(`\n❌ Build failed: Missing dependency '${result.missingModule}'\n`)
+          console.log('💡 This appears to be a required dependency that was not detected automatically.')
+          console.log('   Please install it manually and try again:\n')
+          console.log(`   npm install ${result.missingModule}\n`)
+          process.exit(1)
         }
 
-        console.log(`\n❌ Bundle generation failed:\n`)
+        console.log('\n❌ Bundle generation failed:\n')
         console.log(result.error)
         process.exit(1)
       }
@@ -243,15 +245,15 @@ program
       // Cleanup intermediate files unless --keep-artifacts is set
       if (!options.keepArtifacts) {
         if (options.verbose) console.log('🧹 Cleaning up intermediate files...\n')
-        
+
         const generatedDir = path.join(config.projectRoot, DEFAULT_OUTPUT_DIR)
-        
+
         if (fs.existsSync(generatedDir)) {
           try {
-             fs.rmSync(generatedDir, { recursive: true, force: true })
-             if (options.verbose) console.log(`  ✓ Removed ${generatedDir}\n`)
+            fs.rmSync(generatedDir, { recursive: true, force: true })
+            if (options.verbose) console.log(`  ✓ Removed ${generatedDir}\n`)
           } catch (e) {
-             console.log(`  ⚠️  Failed to cleanup ${generatedDir}: ${e}\n`)
+            console.log(`  ⚠️  Failed to cleanup ${generatedDir}: ${e}\n`)
           }
         }
       } else {
@@ -279,7 +281,7 @@ program
     const defaultNetworks = {
       ethereum: {
         package: '@tetherto/wdk-wallet-evm-erc-4337'
-      },
+      }
     }
 
     const configContent = generateConfigTemplate(defaultNetworks, [])
@@ -338,7 +340,7 @@ program
       { name: '@tetherto/wdk-wallet-btc', description: 'Bitcoin' },
       { name: '@tetherto/wdk-wallet-spark', description: 'Spark (Lightning)' },
       { name: '@tetherto/wdk-wallet-ton', description: 'TON' },
-      { name: '@tetherto/wdk-wallet-solana', description: 'Solana' },
+      { name: '@tetherto/wdk-wallet-solana', description: 'Solana' }
     ]
 
     if (options.json) {
@@ -370,7 +372,7 @@ program
       const readline = await import('readline')
       const rl = readline.createInterface({
         input: process.stdin,
-        output: process.stdout,
+        output: process.stdout
       })
 
       const answer = await new Promise<string>((resolve) => {
@@ -393,7 +395,7 @@ program
     }
   })
 
-function generateConfigTemplate(
+function generateConfigTemplate (
   networks: Record<string, any>,
   preloadModules: string[]
 ): string {

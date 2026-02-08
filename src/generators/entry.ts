@@ -5,7 +5,7 @@ import { generateWalletModulesCode } from './wallet-modules'
 import { generateProtocolModulesCode } from './protocol-modules'
 import { DEFAULT_ENTRY_FILENAME } from '../constants'
 
-export async function generateEntryPoint(config: ResolvedConfig, outputDir: string): Promise<string> {
+export async function generateEntryPoint (config: ResolvedConfig, outputDir: string): Promise<string> {
   const walletModulesCode = generateWalletModulesCode(config)
   const protocolModulesCode = generateProtocolModulesCode(config)
 

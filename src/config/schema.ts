@@ -2,8 +2,8 @@
  * JSON Schema for wdk.config.js validation
  */
 
-import Ajv from 'ajv';
-import type { WdkBundleConfig } from './types';
+import Ajv from 'ajv'
+import type { WdkBundleConfig } from './types'
 
 export const configSchema = {
   $schema: 'http://json-schema.org/draft-07/schema#',
@@ -16,11 +16,11 @@ export const configSchema = {
         type: 'object',
         required: ['package'],
         properties: {
-          package: { type: 'string', description: 'WDK wallet/protocol module name' },
-        },
+          package: { type: 'string', description: 'WDK wallet/protocol module name' }
+        }
       },
       minProperties: 1,
-      description: 'Map of module keys to package name',
+      description: 'Map of module keys to package name'
     },
     protocols: {
       type: 'object',
@@ -28,22 +28,22 @@ export const configSchema = {
         type: 'object',
         required: ['package'],
         properties: {
-          package: { type: 'string', description: 'WDK protocol module name' },
-        },
+          package: { type: 'string', description: 'WDK protocol module name' }
+        }
       },
-      description: 'Map of protocol keys to package name',
+      description: 'Map of protocol keys to package name'
     },
     preloadModules: {
       type: 'array',
       items: { type: 'string' },
-      description: 'Modules to preload (native addons)',
+      description: 'Modules to preload (native addons)'
     },
     output: {
       type: 'object',
       properties: {
         bundle: { type: 'string', description: 'Output bundle path' },
-        types: { type: 'string', description: 'Output types path' },
-      },
+        types: { type: 'string', description: 'Output types path' }
+      }
     },
     options: {
       type: 'object',
@@ -53,34 +53,34 @@ export const configSchema = {
         targets: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Target platforms for bare-pack',
-        },
-      },
-    },
-  },
-};
+          description: 'Target platforms for bare-pack'
+        }
+      }
+    }
+  }
+}
 
-const ajv = new Ajv({ allErrors: true, verbose: true });
-const validate = ajv.compile(configSchema);
+const ajv = new Ajv({ allErrors: true, verbose: true })
+const validate = ajv.compile(configSchema)
 
 /**
  * Validate configuration against JSON schema
  */
-export function validateConfigSchema(config: unknown): asserts config is WdkBundleConfig {
-  const valid = validate(config);
+export function validateConfigSchema (config: unknown): asserts config is WdkBundleConfig {
+  const valid = validate(config)
 
-  if (!valid && validate.errors) {
+  if (!valid && (validate.errors != null)) {
     const errors = validate.errors.map((e) => {
-      const path = e.instancePath || 'root';
-      return `  - ${path}: ${e.message}`;
-    });
-    throw new Error(`Invalid configuration:\n${errors.join('\n')}`);
+      const path = e.instancePath || 'root'
+      return `  - ${path}: ${e.message}`
+    })
+    throw new Error(`Invalid configuration:\n${errors.join('\n')}`)
   }
 }
 
 /**
  * Run all validations
  */
-export function validateConfig(config: unknown): asserts config is WdkBundleConfig {
-  validateConfigSchema(config);
+export function validateConfig (config: unknown): asserts config is WdkBundleConfig {
+  validateConfigSchema(config)
 }

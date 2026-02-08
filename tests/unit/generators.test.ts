@@ -13,16 +13,16 @@ describe('Code Generators', () => {
       },
       polygon: {
         package: '@tetherto/wdk-wallet-evm-erc-4337'
-      },
+      }
     },
     protocols: {},
     configPath: '/test/wdk.config.js',
     projectRoot: '/test',
     resolvedOutput: {
       bundle: '/test/.wdk/wdk.bundle.js',
-      types: '/test/.wdk/wdk.d.ts',
+      types: '/test/.wdk/wdk.d.ts'
     },
-    ...overrides,
+    ...overrides
   })
 
   describe('generateWalletModulesCode', () => {
@@ -52,7 +52,7 @@ describe('Code Generators', () => {
 
     it('should handle preload modules', () => {
       const config = createMockConfig({
-        preloadModules: ['spark-frost-bare-addon'],
+        preloadModules: ['spark-frost-bare-addon']
       })
       const code = generateWalletModulesCode(config)
 
@@ -68,8 +68,8 @@ describe('Code Generators', () => {
           },
           spark: {
             package: '@tetherto/wdk-wallet-spark'
-          },
-        },
+          }
+        }
       })
       const code = generateWalletModulesCode(config)
 

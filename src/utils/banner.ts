@@ -1,4 +1,4 @@
-export function printBanner(): void {
+export function printBanner (): void {
   const banner = `
     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
     x        xxx      xxxx      xxx xxxxxxxxx              xxxxxxxxx x
