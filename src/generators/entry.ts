@@ -25,11 +25,11 @@ if (typeof Bare !== 'undefined' && Bare.on) {
     console.error('Uncaught exception in worklet:', error);
   })
   Bare.on('suspend', () => {
-    console.log('Fetching in worklet suspended')
+    console.log('Fetching in worklet suspended', globalAgent)
     globalAgent.suspend()
   })
   Bare.on('resume', () => {
-    console.log('Fetching in worklet resumed')
+    console.log('Fetching in worklet resumed', globalAgent)
     globalAgent.resume()
   })
 }
