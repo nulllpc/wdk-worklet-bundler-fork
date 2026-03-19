@@ -14,6 +14,8 @@ export async function generateEntryPoint (config: ResolvedConfig, outputDir: str
 // Generated at: ${new Date().toISOString()}
 // DO NOT EDIT MANUALLY
 
+const agent = new http.Agent()
+
 // Handle unhandled promise rejections and exceptions
 if (typeof Bare !== 'undefined' && Bare.on) {
   Bare.on('unhandledRejection', (error) => {
@@ -21,6 +23,14 @@ if (typeof Bare !== 'undefined' && Bare.on) {
   })
   Bare.on('uncaughtException', (error) => {
     console.error('Uncaught exception in worklet:', error);
+  })
+  Bare.on('suspend', () => {
+    console.log('http suspended')
+    agent.suspend()
+  })
+  Bare.on('resume', () => {
+    console.log('http resumed')
+    agent.resume()
   })
 }
 
