@@ -14,7 +14,8 @@ export async function generateEntryPoint (config: ResolvedConfig, outputDir: str
 // Generated at: ${new Date().toISOString()}
 // DO NOT EDIT MANUALLY
 
-const http = require('bare-http1')
+require('bare-node-runtime/global');
+const { globalAgent } = require('bare-http1')
 
 // Handle unhandled promise rejections and exceptions
 if (typeof Bare !== 'undefined' && Bare.on) {
@@ -25,17 +26,15 @@ if (typeof Bare !== 'undefined' && Bare.on) {
     console.error('Uncaught exception in worklet:', error);
   })
   Bare.on('suspend', () => {
-    console.log('================', http)
-    console.log('Fetching in worklet suspended', http.globalAgent)
-    http.globalAgent.suspend()
+    globalAgent.suspend()
+    console.log('Fetching in worklet suspended', globalAgent.suspended)
   })
   Bare.on('resume', () => {
-    console.log('Fetching in worklet resumed', http.globalAgent)
-    http.globalAgent.resume()
+    globalAgent.resume()
+    console.log('Fetching in worklet resumed', globalAgent.resumed)
   })
 }
 
-require('bare-node-runtime/global');
 
 const { IPC: BareIPC } = BareKit
 const { HRPC, registerRpcHandlers, utils } = require('@tetherto/pear-wrk-wdk/worklet', { with: { imports: 'bare-node-runtime/imports' }});
