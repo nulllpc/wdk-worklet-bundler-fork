@@ -7,6 +7,9 @@
 import { Command } from 'commander'
 import fs from 'fs'
 import path from 'path'
+import { DEFAULT_BUNDLE_BUILD_HOSTS, DEFAULT_BUNDLE_PATH, DEFAULT_TYPES_PATH, DEFAULT_OUTPUT_DIR } from './constants'
+import { printBanner } from './utils/banner'
+import { WdkBundleConfig } from './config/types'
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pkg = require('../package.json')
@@ -15,106 +18,191 @@ const program = new Command()
 
 program.name('wdk-worklet-bundler').description('CLI tool for generating WDK worklet bundles').version(pkg.version)
 
+function getPackageList (config: WdkBundleConfig): string[] {
+  const packages = new Set<string>()
+
+  // Add core (always required implicitly, unless overriden/preloaded logic changes)
+  // For validation, we should probably check it.
+  packages.add('@tetherto/wdk')
+  packages.add('bare-node-runtime')
+
+  if (config.networks) {
+    for (const net of Object.values(config.networks)) {
+      if (net.package) packages.add(net.package)
+    }
+  }
+
+  if (config.protocols) {
+    for (const protocol of Object.values(config.protocols)) {
+      if (protocol && protocol.package) packages.add(protocol.package)
+    }
+  }
+
+  if (config.preloadModules) {
+    for (const mod of config.preloadModules) {
+      packages.add(mod)
+    }
+  }
+
+  return Array.from(packages)
+}
+
 program
   .command('generate')
   .description('Generate WDK bundle from configuration')
   .option('-c, --config <path>', 'Path to config file')
   .option('--install', 'Auto-install missing dependencies')
-  .option('--cleanup', 'Remove installed dependencies after bundle is created (use with --install)')
+  .option('--keep-artifacts', 'Keep intermediate generated files (useful for debugging)')
   .option('--dry-run', 'Show what would be generated without building')
   .option('-v, --verbose', 'Show verbose output')
   .option('--no-types', 'Skip TypeScript declaration generation')
   .option('--source-only', 'Only generate source files (skip bare-pack)')
+  .option('--skip-generation', 'Skip artifact generation and use existing files')
   .action(async (options) => {
     const { loadConfig } = await import('./config/loader')
-    const { validateDependencies, installDependencies, uninstallDependencies } = await import('./validators/dependencies')
+    const {
+      validateDependencies,
+      installDependencies,
+      checkOptionalPeerDependencies
+    } = await import('./validators/dependencies')
     const { generateBundle, generateSourceFiles } = await import('./bundler')
 
     // Track packages installed by --install for potential cleanup
-    let installedPackages: string[] = []
+    const installedPackages: string[] = []
+
+    // Helper for prompts
+    const promptYesNo = async (question: string): Promise<boolean> => {
+      const readline = await import('readline')
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      })
+
+      return await new Promise((resolve) => {
+        rl.question(`${question} [Y/n] `, (answer) => {
+          rl.close()
+          resolve(answer.toLowerCase() !== 'n')
+        })
+      })
+    }
 
     try {
       console.log('\n🔍 Reading configuration...\n')
       const config = await loadConfig(options.config)
       console.log(`  Config: ${config.configPath}`)
 
-      console.log('\n📦 Checking dependencies...\n')
-      let validation = validateDependencies(config.modules, config.projectRoot)
+      console.log('\n📦 Checking core dependencies...\n')
+      const requiredPackages = getPackageList(config)
+      let validation = validateDependencies(requiredPackages, config.projectRoot)
 
       for (const mod of validation.installed) {
         const version = mod.isLocal ? 'local' : `v${mod.version}`
         console.log(`  ✓ ${mod.name} (${version})`)
       }
-
       for (const mod of validation.missing) {
         console.log(`  ✗ ${mod} — NOT INSTALLED`)
       }
 
-      // Auto-install missing dependencies if --install flag is set
-      if (!validation.valid && options.install) {
-        console.log('\n📥 Installing missing dependencies...\n')
+      if (!validation.valid) {
+        let shouldInstall = options.install
 
-        const installResult = installDependencies(validation.missing, config.projectRoot, {
-          verbose: options.verbose,
+        if (!shouldInstall && !options.sourceOnly) {
+          console.log('\n⚠️  Missing core dependencies.')
+          shouldInstall = await promptYesNo('Would you like to install them now?')
+        }
+
+        if (shouldInstall) {
+          console.log('\n📥 Installing missing dependencies...\n')
+          const result = installDependencies(validation.missing, config.projectRoot, {
+            verbose: options.verbose
+          })
+
+          if (result.success) {
+            installedPackages.push(...result.installed)
+            validation = validateDependencies(requiredPackages, config.projectRoot)
+          } else {
+            console.log(`\n❌ Failed to install: ${result.error || 'Unknown error'}`)
+            process.exit(1)
+          }
+        } else if (!options.sourceOnly) {
+          console.log('\n❌ Cannot proceed without core dependencies.')
+          process.exit(1)
+        }
+      }
+
+      if (validation.valid && !options.sourceOnly) {
+        const missingPeers = checkOptionalPeerDependencies(validation.installed, config.projectRoot, {
+          verbose: options.verbose
         })
 
-        if (installResult.command) {
-          console.log(`  Running: ${installResult.command}\n`)
-        }
+        if (missingPeers.length > 0) {
+          console.log('\n🧩 Checking peer dependencies...\n')
+          console.log('  The following optional peer dependencies were found in your dependency tree.')
+          console.log('  They are likely required for the worklet bundle to function correctly.\n')
 
-        if (installResult.installed.length > 0) {
-          for (const pkg of installResult.installed) {
-            console.log(`  ✓ Installed ${pkg}`)
+          const packagesToInstall: string[] = []
+
+          for (const peer of missingPeers) {
+            // Determine install version
+            const ranges = [...new Set(peer.sources.map(s => s.range))]
+            const isSingle = ranges.length === 1
+
+            if (isSingle) {
+              // Single consistent requirement
+              console.log(`  ? ${peer.name}@${ranges[0]}`)
+              packagesToInstall.push(`${peer.name}@${ranges[0]}`)
+
+              for (const source of peer.sources) {
+                console.log(`    └─ required by ${source.parent}`)
+              }
+            } else {
+              // Conflicting or mixed requirements
+              console.log(`  ? ${peer.name} (mixed requirements)`)
+              console.log('    ⚠️  Falling back to latest')
+              packagesToInstall.push(peer.name)
+
+              for (const source of peer.sources) {
+                console.log(`    └─ required by ${source.parent} @ ${source.range}`)
+              }
+            }
           }
-          // Track installed packages for potential cleanup
-          installedPackages = installResult.installed
-        }
 
-        if (installResult.failed.length > 0) {
-          for (const pkg of installResult.failed) {
-            console.log(`  ✗ Failed to install ${pkg}`)
+          let shouldInstallPeers = options.install
+
+          if (!shouldInstallPeers) {
+            console.log('\n⚠️  Missing optional peer dependencies.')
+            shouldInstallPeers = await promptYesNo('Would you like to install them now?')
+          }
+
+          if (shouldInstallPeers) {
+            console.log('\n📥 Installing peer dependencies...\n')
+            const result = installDependencies(packagesToInstall, config.projectRoot, {
+              verbose: options.verbose
+            })
+
+            if (result.success) {
+              installedPackages.push(...result.installed)
+            } else {
+              console.log(`\n⚠️  Warning: Failed to install some peer dependencies: ${result.error}`)
+            }
           }
         }
-
-        if (installResult.error && installResult.installed.length === 0) {
-          console.log(`\n❌ Installation failed: ${installResult.error}\n`)
-          process.exit(1)
-        }
-
-        // Re-validate after installation
-        validation = validateDependencies(config.modules, config.projectRoot)
-
-        if (!validation.valid && !options.sourceOnly) {
-          console.log('\n❌ Some dependencies are still missing after installation\n')
-          for (const mod of validation.missing) {
-            console.log(`  ✗ ${mod}`)
-          }
-          process.exit(1)
-        }
-      } else if (!validation.valid && !options.sourceOnly) {
-        console.log('\n❌ Cannot generate bundle: missing dependencies\n')
-        console.log(`  Run: npm install ${validation.missing.join(' ')}\n`)
-        console.log('  Or use --install to auto-install missing dependencies\n')
-        console.log('  Or use --source-only to generate source files without bundling\n')
-        process.exit(1)
       }
 
       console.log('\n🌐 Networks configured:\n')
       for (const [name, cfg] of Object.entries(config.networks)) {
-        console.log(`  ├── ${name} (${cfg.module}) → chainId: ${cfg.chainId}`)
+        console.log(`  ├── ${name} (${cfg.package})`)
       }
 
       if (options.sourceOnly) {
         console.log('\n🔧 Generating source files (source-only mode)...\n')
 
         const result = await generateSourceFiles(config, {
-          verbose: options.verbose,
+          verbose: options.verbose
         })
 
         console.log('\n✅ Source files generated successfully!\n')
         console.log(`  Entry: ${result.entryPath}`)
-        console.log(`  HRPC: ${result.hrpcDir}`)
-        console.log(`  Schema: ${result.schemaDir}\n`)
         console.log('Run bare-pack manually to create the final bundle.\n')
         return
       }
@@ -125,10 +213,19 @@ program
         dryRun: options.dryRun,
         verbose: options.verbose,
         skipTypes: !options.types,
+        skipGeneration: options.skipGeneration
       })
 
       if (!result.success) {
-        console.log(`\n❌ Bundle generation failed:\n`)
+        if (result.missingModule) {
+          console.log(`\n❌ Build failed: Missing dependency '${result.missingModule}'\n`)
+          console.log('💡 This appears to be a required dependency that was not detected automatically.')
+          console.log('   Please install it manually and try again:\n')
+          console.log(`   npm install ${result.missingModule}\n`)
+          process.exit(1)
+        }
+
+        console.log('\n❌ Bundle generation failed:\n')
         console.log(result.error)
         process.exit(1)
       }
@@ -143,30 +240,22 @@ program
       }
       console.log(`  Duration: ${duration}s\n`)
 
-      // Cleanup installed dependencies if --cleanup flag is set
-      if (options.cleanup && installedPackages.length > 0) {
-        console.log('🧹 Cleaning up installed dependencies...\n')
+      // Cleanup intermediate files unless --keep-artifacts is set
+      if (!options.keepArtifacts) {
+        if (options.verbose) console.log('🧹 Cleaning up intermediate files...\n')
 
-        const uninstallResult = uninstallDependencies(installedPackages, config.projectRoot, {
-          verbose: options.verbose,
-        })
+        const generatedDir = path.join(config.projectRoot, DEFAULT_OUTPUT_DIR)
 
-        if (uninstallResult.command) {
-          console.log(`  Running: ${uninstallResult.command}\n`)
-        }
-
-        if (uninstallResult.removed.length > 0) {
-          for (const pkg of uninstallResult.removed) {
-            console.log(`  ✓ Removed ${pkg}`)
+        if (fs.existsSync(generatedDir)) {
+          try {
+            fs.rmSync(generatedDir, { recursive: true, force: true })
+            if (options.verbose) console.log(`  ✓ Removed ${generatedDir}\n`)
+          } catch (e) {
+            console.log(`  ⚠️  Failed to cleanup ${generatedDir}: ${e}\n`)
           }
-          console.log('')
         }
-
-        if (!uninstallResult.success) {
-          console.log(`\n⚠️  Cleanup warning: ${uninstallResult.error}\n`)
-        }
-      } else if (options.cleanup && installedPackages.length === 0) {
-        console.log('ℹ️  No dependencies to clean up (nothing was installed by --install)\n')
+      } else {
+        console.log(`ℹ️  Keeping intermediate files in ${DEFAULT_OUTPUT_DIR}\n`)
       }
     } catch (error) {
       console.error('\n❌ Error:', error instanceof Error ? error.message : error)
@@ -177,7 +266,6 @@ program
 program
   .command('init')
   .description('Create a new wdk.config.js file')
-  .option('--from-pear-wrk-wdk <path>', 'Migrate from existing pear-wrk-wdk setup')
   .option('-y, --yes', 'Use defaults without prompting')
   .action(async (options) => {
     const configPath = path.join(process.cwd(), 'wdk.config.js')
@@ -188,73 +276,17 @@ program
       process.exit(1)
     }
 
-    if (options.fromPearWrkWdk) {
-      // Migrate from pear-wrk-wdk
-      const sourcePath = path.resolve(options.fromPearWrkWdk)
-      const schemaPath = path.join(sourcePath, 'schema.json')
-
-      if (!fs.existsSync(schemaPath)) {
-        console.error(`\n❌ schema.json not found at ${schemaPath}\n`)
-        process.exit(1)
+    const defaultNetworks = {
+      ethereum: {
+        package: '@tetherto/wdk-wallet-evm-erc-4337'
       }
-
-      try {
-        const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'))
-        const walletModules = schema.config?.walletModules || {}
-        const preloadModules = schema.config?.preloadModules || []
-
-        // Build modules config
-        const modules: Record<string, string> = {
-          core: '@tetherto/wdk',
-        }
-        const networks: Record<string, unknown> = {}
-
-        for (const [key, cfg] of Object.entries(walletModules) as [
-          string,
-          { modulePath: string; networks: string[] }
-        ][]) {
-          modules[key] = cfg.modulePath
-
-          for (const network of cfg.networks) {
-            networks[network] = {
-              module: key,
-              chainId: 0, // User needs to fill in
-              blockchain: network,
-            }
-          }
-        }
-
-        const configContent = generateConfigTemplate(modules, networks, preloadModules)
-        fs.writeFileSync(configPath, configContent)
-
-        console.log('\n✅ Created wdk.config.js from pear-wrk-wdk schema\n')
-        console.log('  Please review and update network configurations (chainId, provider, etc.)\n')
-      } catch (error) {
-        console.error('\n❌ Failed to migrate:', error instanceof Error ? error.message : error)
-        process.exit(1)
-      }
-    } else {
-      // Create default config
-      const defaultModules = {
-        core: '@tetherto/wdk',
-        erc4337: '@tetherto/wdk-wallet-evm-erc-4337',
-      }
-
-      const defaultNetworks = {
-        ethereum: {
-          module: 'erc4337',
-          chainId: 1,
-          blockchain: 'ethereum',
-          provider: 'https://eth.drpc.org',
-        },
-      }
-
-      const configContent = generateConfigTemplate(defaultModules, defaultNetworks, [])
-      fs.writeFileSync(configPath, configContent)
-
-      console.log('\n✅ Created wdk.config.js\n')
-      console.log('  Edit the file to configure your networks and modules.\n')
     }
+
+    const configContent = generateConfigTemplate(defaultNetworks, [])
+    fs.writeFileSync(configPath, configContent)
+
+    console.log('\n✅ Created wdk.config.js\n')
+    console.log('  Edit the file to configure your networks and modules.\n')
   })
 
 program
@@ -271,7 +303,8 @@ program
       const config = await loadConfig(options.config)
       console.log(`  ✓ Config file valid: ${config.configPath}`)
 
-      const validation = validateDependencies(config.modules, config.projectRoot)
+      const requiredPackages = getPackageList(config)
+      const validation = validateDependencies(requiredPackages, config.projectRoot)
 
       console.log('\n📦 Dependencies:\n')
       for (const mod of validation.installed) {
@@ -305,7 +338,7 @@ program
       { name: '@tetherto/wdk-wallet-btc', description: 'Bitcoin' },
       { name: '@tetherto/wdk-wallet-spark', description: 'Spark (Lightning)' },
       { name: '@tetherto/wdk-wallet-ton', description: 'TON' },
-      { name: '@tetherto/wdk-wallet-sol', description: 'Solana' },
+      { name: '@tetherto/wdk-wallet-solana', description: 'Solana' }
     ]
 
     if (options.json) {
@@ -326,7 +359,7 @@ program
   .description('Remove generated .wdk folder')
   .option('-y, --yes', 'Skip confirmation')
   .action(async (options) => {
-    const wdkDir = path.join(process.cwd(), '.wdk')
+    const wdkDir = path.join(process.cwd(), DEFAULT_OUTPUT_DIR)
 
     if (!fs.existsSync(wdkDir)) {
       console.log('\n✓ Nothing to clean - .wdk folder does not exist\n')
@@ -337,7 +370,7 @@ program
       const readline = await import('readline')
       const rl = readline.createInterface({
         input: process.stdin,
-        output: process.stdout,
+        output: process.stdout
       })
 
       const answer = await new Promise<string>((resolve) => {
@@ -360,24 +393,15 @@ program
     }
   })
 
-/**
- * Generate config template
- */
-function generateConfigTemplate(
-  modules: Record<string, string>,
-  networks: Record<string, unknown>,
+function generateConfigTemplate (
+  networks: Record<string, any>,
   preloadModules: string[]
 ): string {
-  const modulesStr = Object.entries(modules)
-    .map(([key, value]) => `    ${key}: '${value}'`)
-    .join(',\n')
-
   const networksStr = Object.entries(networks)
     .map(([key, value]) => {
-      const configLines = Object.entries(value as Record<string, unknown>)
-        .map(([k, v]) => `      ${k}: ${typeof v === 'string' ? `'${v}'` : v}`)
-        .join(',\n')
-      return `    ${key}: {\n${configLines}\n    }`
+      // Clean value to be just package
+      const pkg = value.package || value
+      return `    ${key}: { package: '${pkg}' }`
     })
     .join(',\n')
 
@@ -392,36 +416,31 @@ function generateConfigTemplate(
  */
 
 module.exports = {
-  // WDK modules to include in the bundle
-  modules: {
-${modulesStr}
-  },
-
-  // Network configurations
-  // Each network maps to a module and includes chain-specific settings
+  // Network mappings
+  // Map logical network names to WDK wallet packages
   networks: {
 ${networksStr}
   },
 
 ${preloadStr}  // Output paths (optional, defaults shown)
   output: {
-    bundle: './.wdk/wdk.bundle.js',
-    types: './.wdk/wdk.d.ts'
+    bundle: '${DEFAULT_BUNDLE_PATH}',
+    types: '${DEFAULT_TYPES_PATH}'
   },
 
   // Build options (optional)
   options: {
     // minify: false,
     // sourceMaps: false,
-    targets: [
-      'ios-arm64',
-      'ios-arm64-simulator',
-      'android-arm64',
-      'android-arm'
-    ]
+    targets: ${DEFAULT_BUNDLE_BUILD_HOSTS}
   }
 };
 `
+}
+
+if (process.argv.slice(2).length === 0) {
+  printBanner()
+  program.outputHelp()
 }
 
 program.parse()
