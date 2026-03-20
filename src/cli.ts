@@ -32,13 +32,13 @@ function getPackageList (config: WdkBundleConfig): string[] {
     }
   }
 
-  if (config.protocols) {
+  if (config.protocols != null) {
     for (const protocol of Object.values(config.protocols)) {
       if (protocol && protocol.package) packages.add(protocol.package)
     }
   }
 
-  if (config.preloadModules) {
+  if (config.preloadModules != null) {
     for (const mod of config.preloadModules) {
       packages.add(mod)
     }
