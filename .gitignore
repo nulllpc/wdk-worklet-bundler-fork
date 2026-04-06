@@ -4,8 +4,6 @@ node_modules/
 # Test coverage
 coverage/
 
-dist/
-
 # IDE
 .vscode/
 .idea/
