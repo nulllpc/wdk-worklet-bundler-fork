@@ -31,7 +31,7 @@ if (typeof Bare !== 'undefined' && Bare.on) {
   Bare.on('suspend', () => {
     agents.forEach((globalAgent) => {
       globalAgent.suspend()
-      console.log('Fetching in worklet suspended for', globalAgent.suspended)
+      console.log('Fetching in worklet suspended', globalAgent.suspended)
     })
   })
   Bare.on('resume', () => {
