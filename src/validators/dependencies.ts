@@ -16,7 +16,8 @@ export interface ValidationResult {
 
 export function resolveModule (
   modulePath: string,
-  projectRoot: string
+  projectRoot: string,
+  nodeModulesPathOverride?: string
 ): ModuleInfo | null {
   if (modulePath.startsWith('.') || modulePath.startsWith('/')) {
     const absolutePath = path.resolve(projectRoot, modulePath)
@@ -42,41 +43,73 @@ export function resolveModule (
     return null
   }
 
-  const nodeModulesPath = path.join(projectRoot, 'node_modules', modulePath)
+  if (nodeModulesPathOverride) {
+    const absoluteNodeModules = path.isAbsolute(nodeModulesPathOverride)
+      ? nodeModulesPathOverride
+      : path.resolve(projectRoot, nodeModulesPathOverride)
 
-  if (!fs.existsSync(nodeModulesPath)) {
-    return null
+    const fullPath = path.join(absoluteNodeModules, modulePath)
+    if (fs.existsSync(fullPath)) {
+      const pkgPath = path.join(fullPath, 'package.json')
+      if (fs.existsSync(pkgPath)) {
+        try {
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
+          return {
+            name: pkg.name,
+            path: fullPath,
+            version: pkg.version,
+            isLocal: false
+          }
+        } catch {
+          // Fall through if malformed
+        }
+      }
+    }
   }
 
-  const pkgPath = path.join(nodeModulesPath, 'package.json')
-  if (!fs.existsSync(pkgPath)) {
-    return null
+  let currentDir = projectRoot
+  while (true) {
+    const nodeModulesPath = path.join(currentDir, 'node_modules', modulePath)
+
+    if (fs.existsSync(nodeModulesPath)) {
+      const pkgPath = path.join(nodeModulesPath, 'package.json')
+      if (fs.existsSync(pkgPath)) {
+        try {
+          const pkg: { name: string, version: string } = JSON.parse(
+            fs.readFileSync(pkgPath, 'utf-8')
+          )
+          return {
+            name: pkg.name,
+            path: nodeModulesPath,
+            version: pkg.version,
+            isLocal: false
+          }
+        } catch {
+          // Skip malformed package.json and keep searching
+        }
+      }
+    }
+
+    const parentDir = path.dirname(currentDir)
+    if (parentDir === currentDir) {
+      break
+    }
+    currentDir = parentDir
   }
 
-  let pkg: { name: string, version: string }
-  try {
-    pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
-  } catch {
-    return null
-  }
-
-  return {
-    name: pkg.name,
-    path: nodeModulesPath,
-    version: pkg.version,
-    isLocal: false
-  }
+  return null
 }
 
 export function validateDependencies (
   modules: string[],
-  projectRoot: string
+  projectRoot: string,
+  nodeModulesPath?: string
 ): ValidationResult {
   const installed: ModuleInfo[] = []
   const missing: string[] = []
 
   for (const modulePath of modules) {
-    const info = resolveModule(modulePath, projectRoot)
+    const info = resolveModule(modulePath, projectRoot, nodeModulesPath)
 
     if (info != null) {
       installed.push(info)
@@ -103,7 +136,7 @@ export interface MissingPeer {
 export function checkOptionalPeerDependencies (
   installedModules: ModuleInfo[],
   projectRoot: string,
-  options: { verbose?: boolean } = {}
+  options: { verbose?: boolean, nodeModulesPath?: string } = {}
 ): MissingPeer[] {
   const missingPeers = new Map<string, MissingPeer>()
   const visitedPaths = new Set<string>()
@@ -154,7 +187,7 @@ export function checkOptionalPeerDependencies (
         }
 
         // Check if installed in project root (peer deps should be hoisted)
-        const peerInfo = resolveModule(peerName, projectRoot)
+        const peerInfo = resolveModule(peerName, projectRoot, options.nodeModulesPath)
 
         if (peerInfo == null) {
           log(`  [scan] Missing peer: ${peerName} (required by ${currentName})`)
@@ -184,7 +217,7 @@ export function checkOptionalPeerDependencies (
           continue
         }
 
-        let depInfo = resolveModule(depName, projectRoot)
+        let depInfo = resolveModule(depName, projectRoot, options.nodeModulesPath)
 
         if (depInfo == null) {
           const nestedPath = path.join(currentPath, 'node_modules', depName)

@@ -8,6 +8,7 @@ import path from 'path'
 import { execFileSync } from 'child_process'
 import type { ResolvedConfig } from '../config/types'
 import { generateEntryPoint } from '../generators/entry'
+import { resolveModule } from '../validators/dependencies'
 import { DEFAULT_BUNDLE_BUILD_HOSTS, DEFAULT_BUNDLE_FILENAME, DEFAULT_OUTPUT_DIR, DEFAULT_ENTRY_FILENAME } from '../constants'
 
 export interface GenerateBundleOptions {
@@ -43,8 +44,18 @@ interface BarePackOptions {
 function runBarePack (options: BarePackOptions): void {
   const { entryPath, outputPath, importsPath, targets, cwd, verbose } = options
 
-  // Build args array to prevent command injection
-  const args = ['--no-install', 'bare-pack']
+  const mod = resolveModule('bare-pack', cwd)
+  if (!mod) {
+    throw new Error('Could not find bare-pack. Please ensure it is installed in your project.')
+  }
+
+  const barePackBin = path.join(mod.path, 'bin.js')
+
+  if (!fs.existsSync(barePackBin)) {
+    throw new Error(`Binary not found at ${barePackBin}`)
+  }
+
+  const args = [barePackBin]
   for (const target of targets) {
     // Validate target format (alphanumeric with dashes only)
     if (!/^[a-z0-9-]+$/i.test(target)) {
@@ -55,12 +66,12 @@ function runBarePack (options: BarePackOptions): void {
   args.push('--linked', '--imports', importsPath, '--out', outputPath, entryPath)
 
   if (verbose === true) {
-    console.log(`  Running: npx ${args.join(' ')}`)
+    console.log(`  Running: node ${args.join(' ')}`)
     console.log(`  CWD: ${cwd}`)
   }
 
   try {
-    execFileSync('npx', args, {
+    execFileSync('node', args, {
       cwd,
       stdio: verbose === true ? 'inherit' : 'pipe'
     })

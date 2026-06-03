@@ -93,7 +93,7 @@ program
 
       console.log('\n📦 Checking core dependencies...\n')
       const requiredPackages = getPackageList(config)
-      let validation = validateDependencies(requiredPackages, config.projectRoot)
+      let validation = validateDependencies(requiredPackages, config.projectRoot, config.options?.nodeModulesPath)
 
       for (const mod of validation.installed) {
         const version = mod.isLocal ? 'local' : `v${mod.version}`
@@ -119,7 +119,7 @@ program
 
           if (result.success) {
             installedPackages.push(...result.installed)
-            validation = validateDependencies(requiredPackages, config.projectRoot)
+            validation = validateDependencies(requiredPackages, config.projectRoot, config.options?.nodeModulesPath)
           } else {
             console.log(`\n❌ Failed to install: ${result.error || 'Unknown error'}`)
             process.exit(1)
@@ -132,7 +132,8 @@ program
 
       if (validation.valid && !options.sourceOnly) {
         const missingPeers = checkOptionalPeerDependencies(validation.installed, config.projectRoot, {
-          verbose: options.verbose
+          verbose: options.verbose,
+          nodeModulesPath: config.options?.nodeModulesPath
         })
 
         if (missingPeers.length > 0) {
@@ -304,7 +305,7 @@ program
       console.log(`  ✓ Config file valid: ${config.configPath}`)
 
       const requiredPackages = getPackageList(config)
-      const validation = validateDependencies(requiredPackages, config.projectRoot)
+      const validation = validateDependencies(requiredPackages, config.projectRoot, config.options?.nodeModulesPath)
 
       console.log('\n📦 Dependencies:\n')
       for (const mod of validation.installed) {

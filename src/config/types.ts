@@ -32,6 +32,7 @@ export interface WdkBundleConfig {
     minify?: boolean
     sourceMaps?: boolean
     targets?: string[]
+    nodeModulesPath?: string
   }
 }
 

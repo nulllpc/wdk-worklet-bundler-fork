@@ -54,6 +54,10 @@ export const configSchema = {
           type: 'array',
           items: { type: 'string' },
           description: 'Target platforms for bare-pack'
+        },
+        nodeModulesPath: {
+          type: 'string',
+          description: 'Custom path to node_modules directory (useful for monorepos)'
         }
       }
     }
