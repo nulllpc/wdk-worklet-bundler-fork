@@ -35,14 +35,50 @@ interface BarePackOptions {
   importsPath: string
   targets: string[]
   cwd: string
+  basePath?: string
   verbose?: boolean
+}
+
+/**
+ * Detect the base path for bare-pack bundle generation.
+ */
+function detectBasePath (projectRoot: string, nodeModulesPath?: string): string {
+  if (nodeModulesPath) {
+    const absNodeModules = path.isAbsolute(nodeModulesPath)
+      ? nodeModulesPath
+      : path.resolve(projectRoot, nodeModulesPath)
+
+    if (!absNodeModules.startsWith(projectRoot + path.sep) && absNodeModules !== projectRoot) {
+      return path.dirname(absNodeModules)
+    }
+  }
+
+  let currentDir = path.dirname(projectRoot)
+  while (true) {
+    const pkgPath = path.join(currentDir, 'package.json')
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
+        if (pkg.workspaces) {
+          return currentDir
+        }
+      } catch {
+        // malformed package.json — keep walking
+      }
+    }
+    const parent = path.dirname(currentDir)
+    if (parent === currentDir) break
+    currentDir = parent
+  }
+
+  return projectRoot
 }
 
 /**
  * Run bare-pack to create the final bundle
  */
 function runBarePack (options: BarePackOptions): void {
-  const { entryPath, outputPath, importsPath, targets, cwd, verbose } = options
+  const { entryPath, outputPath, importsPath, targets, cwd, basePath, verbose } = options
 
   const mod = resolveModule('bare-pack', cwd)
   if (!mod) {
@@ -62,6 +98,9 @@ function runBarePack (options: BarePackOptions): void {
       throw new Error(`Invalid target format: ${target}`)
     }
     args.push('--host', target)
+  }
+  if (basePath && basePath !== cwd) {
+    args.push('--base', basePath)
   }
   args.push('--linked', '--imports', importsPath, '--out', outputPath, entryPath)
 
@@ -209,6 +248,10 @@ export async function generateBundle (
     // Step 4: Run bare-pack
     if (verbose) log('  Running bare-pack...')
     const targets = config.options?.targets || getDefaultHosts()
+    const basePath = detectBasePath(config.projectRoot, config.options?.nodeModulesPath)
+    if (verbose && basePath !== config.projectRoot) {
+      log(`  Monorepo root detected, using base: ${basePath}`)
+    }
 
     try {
       runBarePack({
@@ -217,6 +260,7 @@ export async function generateBundle (
         importsPath,
         targets,
         cwd: config.projectRoot,
+        basePath,
         verbose
       })
     } catch (barePackError: any) {
