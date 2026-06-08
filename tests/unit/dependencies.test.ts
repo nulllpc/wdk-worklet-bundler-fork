@@ -78,6 +78,69 @@ describe('Dependency Validator', () => {
       expect(result).toBeNull()
     })
 
+    it('should resolve a package nested inside another package node_modules', () => {
+      // pkg-a has its own node_modules with pkg-b inside
+      const pkgBPath = path.join(tempDir, 'node_modules', 'pkg-a', 'node_modules', 'pkg-b')
+      fs.mkdirSync(pkgBPath, { recursive: true })
+      fs.writeFileSync(
+        path.join(pkgBPath, 'package.json'),
+        JSON.stringify({ name: 'pkg-b', version: '1.2.3' })
+      )
+
+      const result = resolveModule('pkg-b', tempDir)
+
+      expect(result).not.toBeNull()
+      expect(result?.name).toBe('pkg-b')
+      expect(result?.version).toBe('1.2.3')
+      expect(result?.isLocal).toBe(false)
+    })
+
+    it('should resolve a scoped package nested 3 levels deep', () => {
+      // mirrors the real case:
+      // node_modules/@tetherto/wdk-wallet-spark/node_modules/@buildonspark/bare/node_modules/@buildonspark/spark-frost-bare-addon
+      const deepPath = path.join(
+        tempDir,
+        'node_modules',
+        '@tetherto', 'wdk-wallet-spark',
+        'node_modules',
+        '@buildonspark', 'bare',
+        'node_modules',
+        '@buildonspark', 'spark-frost-bare-addon'
+      )
+      fs.mkdirSync(deepPath, { recursive: true })
+      fs.writeFileSync(
+        path.join(deepPath, 'package.json'),
+        JSON.stringify({ name: '@buildonspark/spark-frost-bare-addon', version: '0.0.11' })
+      )
+
+      const result = resolveModule('@buildonspark/spark-frost-bare-addon', tempDir)
+
+      expect(result).not.toBeNull()
+      expect(result?.name).toBe('@buildonspark/spark-frost-bare-addon')
+      expect(result?.version).toBe('0.0.11')
+      expect(result?.isLocal).toBe(false)
+    })
+
+    it('should prefer hoisted package over deeply nested one', () => {
+      const hoistedPath = path.join(tempDir, 'node_modules', '@scope', 'pkg')
+      fs.mkdirSync(hoistedPath, { recursive: true })
+      fs.writeFileSync(
+        path.join(hoistedPath, 'package.json'),
+        JSON.stringify({ name: '@scope/pkg', version: '1.0.0' })
+      )
+
+      const nestedPath = path.join(tempDir, 'node_modules', 'other-pkg', 'node_modules', '@scope', 'pkg')
+      fs.mkdirSync(nestedPath, { recursive: true })
+      fs.writeFileSync(
+        path.join(nestedPath, 'package.json'),
+        JSON.stringify({ name: '@scope/pkg', version: '2.0.0' })
+      )
+
+      const result = resolveModule('@scope/pkg', tempDir)
+
+      expect(result?.version).toBe('1.0.0')
+    })
+
     it('should handle absolute paths', () => {
       const absoluteModule = path.join(tempDir, 'absolute-module')
       fs.mkdirSync(absoluteModule, { recursive: true })

@@ -14,6 +14,51 @@ export interface ValidationResult {
   missing: string[]
 }
 
+function findInNodeModulesTree (
+  packageName: string,
+  nodeModulesDir: string,
+  maxDepth: number = 8
+): string | null {
+  if (maxDepth === 0 || !fs.existsSync(nodeModulesDir)) return null
+
+  const directPath = path.join(nodeModulesDir, packageName)
+  if (fs.existsSync(path.join(directPath, 'package.json'))) return directPath
+
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(nodeModulesDir, { withFileTypes: true })
+  } catch {
+    return null
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+
+    const entryPath = path.join(nodeModulesDir, entry.name)
+
+    if (entry.name.startsWith('@')) {
+      let scopedEntries: fs.Dirent[]
+      try {
+        scopedEntries = fs.readdirSync(entryPath, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const scopedEntry of scopedEntries) {
+        if (!scopedEntry.isDirectory()) continue
+        const nested = path.join(entryPath, scopedEntry.name, 'node_modules')
+        const found = findInNodeModulesTree(packageName, nested, maxDepth - 1)
+        if (found !== null) return found
+      }
+    } else {
+      const nested = path.join(entryPath, 'node_modules')
+      const found = findInNodeModulesTree(packageName, nested, maxDepth - 1)
+      if (found !== null) return found
+    }
+  }
+
+  return null
+}
+
 export function resolveModule (
   modulePath: string,
   projectRoot: string,
@@ -95,6 +140,23 @@ export function resolveModule (
       break
     }
     currentDir = parentDir
+  }
+
+  const deepPath = findInNodeModulesTree(modulePath, path.join(projectRoot, 'node_modules'))
+  if (deepPath !== null) {
+    try {
+      const pkg: { name: string, version: string } = JSON.parse(
+        fs.readFileSync(path.join(deepPath, 'package.json'), 'utf-8')
+      )
+      return {
+        name: pkg.name,
+        path: deepPath,
+        version: pkg.version,
+        isLocal: false
+      }
+    } catch {
+      // malformed package.json — fall through
+    }
   }
 
   return null
