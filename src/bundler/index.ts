@@ -37,6 +37,13 @@ interface BarePackOptions {
   verbose?: boolean
 }
 
+class MissingModuleError extends Error {
+  constructor (public readonly missingModule: string) {
+    super(`Missing module: ${missingModule}`)
+    this.name = 'MissingModuleError'
+  }
+}
+
 /**
  * Run bare-pack to create the final bundle
  */
@@ -64,19 +71,17 @@ function runBarePack (options: BarePackOptions): void {
       cwd,
       stdio: verbose === true ? 'inherit' : 'pipe'
     })
-  } catch (error: any) {
+  } catch (error) {
     // Try to extract stdout/stderr if available
-    const stderr: string = error.stderr ? error.stderr.toString() : ''
-    const stdout: string = error.stdout ? error.stdout.toString() : ''
+    const execError = error as { stderr?: Buffer | string, stdout?: Buffer | string }
+    const stderr: string = execError.stderr != null ? execError.stderr.toString() : ''
+    const stdout: string = execError.stdout != null ? execError.stdout.toString() : ''
     const output = stderr + stdout
 
     // Check for missing module error
     const match = output.match(/MODULE_NOT_FOUND: Cannot find module '(.+?)'/)
     if (match?.[1]) {
-      const missingModule = match[1]
-      const err = new Error(`Missing module: ${missingModule}`)
-      ;(err as any).missingModule = missingModule
-      throw err
+      throw new MissingModuleError(match[1])
     }
 
     // Re-throw original error if we couldn't parse it
@@ -208,9 +213,9 @@ export async function generateBundle (
         cwd: config.projectRoot,
         verbose
       })
-    } catch (barePackError: any) {
+    } catch (barePackError) {
       // Check if we identified a missing module
-      if (barePackError.missingModule) {
+      if (barePackError instanceof MissingModuleError) {
         return {
           success: false,
           bundlePath: config.resolvedOutput.bundle,
